@@ -1,65 +1,128 @@
-import Image from "next/image";
+"use client";
+
+import { useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFile = useCallback(
+    async (file: File) => {
+      setError(null);
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const dataUrl = e.target?.result as string;
+        setPreview(dataUrl);
+        setLoading(true);
+        try {
+          const res = await fetch("/api/identify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: dataUrl }),
+          });
+          if (!res.ok) throw new Error("Identification failed");
+          const data = await res.json();
+          sessionStorage.setItem("wildlens_result", JSON.stringify({ ...data, image: dataUrl }));
+          router.push("/result");
+        } catch {
+          setError("Could not identify the animal. Please try a clearer photo.");
+          setLoading(false);
+          setPreview(null);
+        }
+      };
+      reader.readAsDataURL(file);
+    },
+    [router]
+  );
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith("image/")) handleFile(file);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="flex flex-col flex-1 items-center justify-center px-4 py-12 gap-8">
+      {/* Header */}
+      <div className="text-center">
+        <div className="text-5xl mb-3">🦅</div>
+        <h1 className="text-4xl font-bold tracking-tight" style={{ color: "var(--accent-light)" }}>
+          WildLens
+        </h1>
+        <p className="mt-2 text-sm" style={{ color: "#a5d6a7" }}>
+          Point at any bird or reptile for instant field guide details
+        </p>
+      </div>
+
+      {/* Upload area */}
+      <div
+        className="w-full max-w-sm rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-4 p-10 transition-colors cursor-pointer"
+        style={{ borderColor: "#2e4d2e", background: "var(--card)" }}
+        onDrop={onDrop}
+        onDragOver={(e) => e.preventDefault()}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        {loading ? (
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-green-400 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm" style={{ color: "#a5d6a7" }}>Identifying animal…</p>
+          </div>
+        ) : preview ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={preview} alt="Preview" className="rounded-xl w-full object-cover max-h-64" />
+        ) : (
+          <>
+            <div className="text-5xl">📷</div>
+            <p className="text-center text-sm font-medium" style={{ color: "#a5d6a7" }}>
+              Tap to upload a photo
+              <br />
+              <span className="text-xs opacity-60">or drag &amp; drop</span>
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* Buttons */}
+      {!loading && (
+        <div className="flex flex-col gap-3 w-full max-w-sm">
+          <button
+            className="w-full py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 active:scale-95"
+            style={{ background: "var(--accent)", color: "#0f1a0f" }}
+            onClick={() => cameraInputRef.current?.click()}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Open Camera
+          </button>
+          <button
+            className="w-full py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 active:scale-95"
+            style={{ background: "#1a2e1a", color: "var(--accent-light)", border: "1px solid #2e4d2e" }}
+            onClick={() => fileInputRef.current?.click()}
           >
-            Documentation
-          </a>
+            Choose from Library
+          </button>
         </div>
-      </main>
-    </div>
+      )}
+
+      {error && (
+        <p className="text-sm text-red-400 text-center max-w-xs">{error}</p>
+      )}
+
+      {/* Hidden inputs */}
+      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />
+
+      <p className="text-xs opacity-40 text-center max-w-xs">
+        Birds · Reptiles · Amphibians — more species coming soon
+      </p>
+    </main>
   );
 }
