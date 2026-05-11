@@ -57,7 +57,12 @@ export default function ResultPage() {
   if (!result) return null;
 
   const statusCol = statusColor[result.conservationStatus] ?? "#a5d6a7";
-  const categoryIcon = result.category === "bird" ? "🐦" : result.category === "reptile" ? "🦎" : result.category === "amphibian" ? "🐸" : "🐾";
+  const categoryIcons: Record<string, string> = {
+    bird: "🐦", mammal: "🦁", reptile: "🦎", amphibian: "🐸",
+    fish: "🐟", insect: "🐛", arachnid: "🕷️", crustacean: "🦀",
+    mollusk: "🐚", pet: "🐾", other: "🐾",
+  };
+  const categoryIcon = categoryIcons[result.category] ?? "🐾";
 
   return (
     <main className="flex flex-col flex-1 max-w-lg mx-auto w-full px-4 py-6 gap-5">

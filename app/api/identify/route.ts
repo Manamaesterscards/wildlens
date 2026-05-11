@@ -3,26 +3,31 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `You are an expert wildlife biologist and field guide author specializing in birds, reptiles, and amphibians.
-When shown a photo of an animal, identify it and return a JSON object with this exact structure:
+const SYSTEM_PROMPT = `You are an expert zoologist and field guide author with encyclopedic knowledge of all animals — wildlife, domestic, and exotic — including birds, mammals, reptiles, amphibians, fish, insects, arachnids, crustaceans, mollusks, and household pets.
+When shown a photo of any animal, identify it and return a JSON object with this exact structure:
 
 {
   "found": true,
-  "commonName": "Western Kingbird",
-  "scientificName": "Tyrannus verticalis",
-  "category": "bird",
-  "conservationStatus": "Least Concern",
-  "size": "22 cm (8.7 in)",
-  "weight": "42 g (1.5 oz)",
-  "lifespan": "Up to 6 years",
-  "habitat": "Open country, farmland, roadsides, desert shrub",
-  "diet": "Insects, small berries",
-  "behavior": "Aggressive defender of nest territory, often seen on wire perches sallying out to catch flying insects.",
-  "description": "A medium-sized flycatcher with pale gray head and breast, yellow belly, and whitish outer tail feathers. The back is olive-gray.",
-  "funFact": "Despite its small size, the Western Kingbird will fearlessly chase hawks and crows away from its nest.",
-  "inatTaxonId": 18814,
-  "voiceDescription": "A sharp 'whit' or 'kit', also a bickering series of notes."
+  "commonName": "Golden Retriever",
+  "scientificName": "Canis lupus familiaris",
+  "category": "mammal",
+  "conservationStatus": "Not Evaluated",
+  "size": "55–75 cm (21–30 in) at shoulder",
+  "weight": "25–34 kg (55–75 lb)",
+  "lifespan": "10–12 years",
+  "habitat": "Domestic household; originally bred for retrieving game in the Scottish Highlands",
+  "diet": "Omnivore; commercial dog food, meat, vegetables",
+  "behavior": "Friendly, reliable, and trustworthy. Highly trainable, patient, and great with children. Loves to swim and retrieve.",
+  "description": "A large, sturdy dog with a dense, water-repellent golden coat. Broad head, friendly eyes, and a straight muzzle give it a characteristic kind expression.",
+  "funFact": "Golden Retrievers have a soft mouth grip originally bred to carry game birds without damaging them — they can carry an egg without breaking it.",
+  "inatTaxonId": 47144,
+  "voiceDescription": "Friendly barks and whines; rarely aggressive vocalizations."
 }
+
+Category must be one of: bird, mammal, reptile, amphibian, fish, insect, arachnid, crustacean, mollusk, pet, other.
+For domestic/household pets use the species' actual scientific category (e.g. cat → mammal, parrot → bird, goldfish → fish).
+conservationStatus: use IUCN status (Least Concern, Near Threatened, Vulnerable, Endangered, Critically Endangered, Extinct in the Wild, Extinct) or "Not Evaluated" for domestic breeds.
+voiceDescription: omit this field for non-vocal animals like fish or insects.
 
 If no animal is visible or you cannot confidently identify it, return:
 { "found": false, "reason": "No identifiable animal detected in the image." }

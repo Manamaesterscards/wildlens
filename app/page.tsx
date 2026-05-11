@@ -60,7 +60,7 @@ export default function Home() {
           WildLens
         </h1>
         <p className="mt-2 text-sm" style={{ color: "#a5d6a7" }}>
-          Point at any bird or reptile for instant field guide details
+          Point at any animal for instant field guide details
         </p>
       </div>
 
@@ -121,7 +121,7 @@ export default function Home() {
       <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />
 
       <p className="text-xs opacity-40 text-center max-w-xs">
-        Birds · Reptiles · Amphibians — more species coming soon
+        Birds · Mammals · Reptiles · Amphibians · Fish · Insects · Pets & more
       </p>
     </main>
   );
