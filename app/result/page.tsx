@@ -3,44 +3,48 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { STATUS_SCALE, capitalize, findStatus, loadCurrent, type AnimalResult } from "@/lib/wildlens";
 
 const RangeMap = dynamic(() => import("@/components/RangeMap"), { ssr: false });
 
-interface AnimalResult {
-  found: boolean;
-  commonName: string;
-  scientificName: string;
-  category: string;
-  conservationStatus: string;
-  size: string;
-  weight: string;
-  lifespan: string;
-  habitat: string;
-  diet: string;
-  behavior: string;
-  description: string;
-  funFact: string;
-  inatTaxonId: number | null;
-  voiceDescription?: string;
-  image: string;
+function Fact({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <div className="fact">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
 }
 
-const statusColor: Record<string, string> = {
-  "Least Concern": "#4caf50",
-  "Near Threatened": "#ffeb3b",
-  "Vulnerable": "#ff9800",
-  "Endangered": "#f44336",
-  "Critically Endangered": "#b71c1c",
-  "Extinct in the Wild": "#7b1fa2",
-  "Extinct": "#212121",
-};
-
-function StatCard({ label, value }: { label: string; value: string }) {
+function ConservationStatus({ status }: { status: string }) {
+  const current = findStatus(status);
   return (
-    <div className="rounded-xl p-3 flex flex-col gap-1" style={{ background: "#1a2e1a" }}>
-      <span className="text-xs opacity-50 uppercase tracking-wider">{label}</span>
-      <span className="text-sm font-semibold" style={{ color: "#e8f5e9" }}>{value}</span>
-    </div>
+    <section className="entry-section" aria-labelledby="status-heading">
+      <h2 id="status-heading" className="section-heading">
+        Conservation status
+      </h2>
+      <p className="status-name">{status || "Not evaluated"}</p>
+      <p className="status-meaning">
+        {current ? current.meaning : "Not assessed for the Red List, which is usual for pets and domestic breeds."}
+      </p>
+      <ol className="status-scale" aria-hidden="true">
+        {STATUS_SCALE.map((s) => (
+          <li
+            key={s.code}
+            className="status-step"
+            data-current={current?.code === s.code ? "true" : undefined}
+            style={{ "--step": s.color, "--on-step": s.onColor } as React.CSSProperties}
+          >
+            {s.code}
+          </li>
+        ))}
+      </ol>
+      <p className="status-ends" aria-hidden="true">
+        <span>Lower risk</span>
+        <span>Extinct</span>
+      </p>
+    </section>
   );
 }
 
@@ -49,128 +53,87 @@ export default function ResultPage() {
   const [result, setResult] = useState<AnimalResult | null>(null);
 
   useEffect(() => {
-    const raw = sessionStorage.getItem("wildlens_result");
-    if (!raw) { router.replace("/"); return; }
-    try { setResult(JSON.parse(raw)); } catch { router.replace("/"); }
+    const current = loadCurrent();
+    if (current) setResult(current);
+    else router.replace("/");
   }, [router]);
 
   if (!result) return null;
 
-  const statusCol = statusColor[result.conservationStatus] ?? "#a5d6a7";
-  const categoryIcons: Record<string, string> = {
-    bird: "🐦", mammal: "🦁", reptile: "🦎", amphibian: "🐸",
-    fish: "🐟", insect: "🐛", arachnid: "🕷️", crustacean: "🦀",
-    mollusk: "🐚", pet: "🐾", other: "🐾",
-  };
-  const categoryIcon = categoryIcons[result.category] ?? "🐾";
-
   return (
-    <main className="flex flex-col flex-1 max-w-lg mx-auto w-full px-4 py-6 gap-5">
-      {/* Back */}
-      <button
-        onClick={() => router.push("/")}
-        className="self-start text-sm flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity"
-      >
-        ← New scan
-      </button>
+    <main className="entry">
+      <nav className="entry-nav">
+        <button type="button" className="back" onClick={() => router.push("/")}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M10 3 5 8l5 5" />
+          </svg>
+          Identify another
+        </button>
+        <span className="wordmark">WildLens</span>
+      </nav>
 
-      {/* Photo */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={result.image}
-        alt={result.commonName}
-        className="w-full rounded-2xl object-cover"
-        style={{ maxHeight: 280 }}
-      />
+      <figure className="plate">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={result.image} alt={`Your photo of a ${result.commonName}`} />
+      </figure>
 
-      {/* Name + category */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">{categoryIcon}</span>
-            <h1 className="text-2xl font-bold" style={{ color: "#e8f5e9" }}>{result.commonName}</h1>
-          </div>
-          <p className="text-sm italic opacity-60 mt-0.5">{result.scientificName}</p>
-        </div>
-        <span
-          className="text-xs font-semibold px-2 py-1 rounded-full shrink-0 mt-1"
-          style={{ background: statusCol + "22", color: statusCol, border: `1px solid ${statusCol}44` }}
-        >
-          {result.conservationStatus}
-        </span>
-      </div>
+      <article className="entry-body">
+        <header className="entry-header">
+          <h1 className="entry-title">{result.commonName}</h1>
+          <p className="entry-sci">{result.scientificName}</p>
+        </header>
 
-      {/* Description */}
-      <p className="text-sm leading-relaxed opacity-80">{result.description}</p>
+        <p className="entry-description">{result.description}</p>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-2">
-        <StatCard label="Size" value={result.size} />
-        <StatCard label="Weight" value={result.weight} />
-        <StatCard label="Lifespan" value={result.lifespan} />
-        <StatCard label="Category" value={result.category.charAt(0).toUpperCase() + result.category.slice(1)} />
-      </div>
+        <dl className="facts">
+          <Fact label="Group" value={capitalize(result.category)} />
+          <Fact label="Size" value={result.size} />
+          <Fact label="Weight" value={result.weight} />
+          <Fact label="Lifespan" value={result.lifespan} />
+          <Fact label="Habitat" value={result.habitat} />
+          <Fact label="Diet" value={result.diet} />
+          <Fact label="Behavior" value={result.behavior} />
+          <Fact label="Voice" value={result.voiceDescription} />
+        </dl>
 
-      {/* Habitat & Diet */}
-      <div className="rounded-xl p-4 flex flex-col gap-3" style={{ background: "#1a2e1a" }}>
-        <div>
-          <p className="text-xs opacity-50 uppercase tracking-wider mb-1">Habitat</p>
-          <p className="text-sm">{result.habitat}</p>
-        </div>
-        <div>
-          <p className="text-xs opacity-50 uppercase tracking-wider mb-1">Diet</p>
-          <p className="text-sm">{result.diet}</p>
-        </div>
-        <div>
-          <p className="text-xs opacity-50 uppercase tracking-wider mb-1">Behavior</p>
-          <p className="text-sm">{result.behavior}</p>
-        </div>
-        {result.voiceDescription && (
-          <div>
-            <p className="text-xs opacity-50 uppercase tracking-wider mb-1">Voice</p>
-            <p className="text-sm">{result.voiceDescription}</p>
-          </div>
+        {result.funFact && (
+          <section className="entry-section" aria-labelledby="fact-heading">
+            <h2 id="fact-heading" className="section-heading">
+              Worth knowing
+            </h2>
+            <p className="worth-knowing">{result.funFact}</p>
+          </section>
         )}
-      </div>
 
-      {/* Fun fact */}
-      <div
-        className="rounded-xl p-4 flex gap-3 items-start"
-        style={{ background: "#1b3a1b", border: "1px solid #2e5a2e" }}
-      >
-        <span className="text-xl shrink-0">💡</span>
-        <p className="text-sm leading-relaxed">{result.funFact}</p>
-      </div>
+        <ConservationStatus status={result.conservationStatus} />
 
-      {/* Range map */}
-      <div>
-        <h2 className="text-sm font-semibold mb-2 uppercase tracking-wider opacity-60">Range Map</h2>
-        {result.inatTaxonId ? (
-          <RangeMap taxonId={result.inatTaxonId} commonName={result.commonName} />
-        ) : (
-          <div
-            className="rounded-xl flex items-center justify-center text-sm opacity-40"
-            style={{ height: 160, background: "#1a2e1a" }}
-          >
-            Range map unavailable for this species
-          </div>
-        )}
-      </div>
+        <section className="entry-section" aria-labelledby="range-heading">
+          <h2 id="range-heading" className="section-heading">
+            Where it has been seen
+          </h2>
+          {result.inatTaxonId ? (
+            <>
+              <RangeMap taxonId={result.inatTaxonId} />
+              <p className="map-caption">
+                Shaded areas are sightings logged on iNaturalist.{" "}
+                <a
+                  href={`https://www.inaturalist.org/taxa/${result.inatTaxonId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  See the {result.commonName} on iNaturalist
+                </a>
+              </p>
+            </>
+          ) : (
+            <p className="map-empty">No range map is available for this animal.</p>
+          )}
+        </section>
 
-      {/* iNaturalist link */}
-      {result.inatTaxonId && (
-        <a
-          href={`https://www.inaturalist.org/taxa/${result.inatTaxonId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-center text-xs py-3 rounded-xl font-medium transition-opacity hover:opacity-80"
-          style={{ background: "#1a2e1a", color: "#81c784", border: "1px solid #2e4d2e" }}
-        >
-          View on iNaturalist →
-        </a>
-      )}
-
-      <div className="pb-8" />
+        <button type="button" className="btn btn-primary entry-again" onClick={() => router.push("/")}>
+          Identify another animal
+        </button>
+      </article>
     </main>
   );
 }

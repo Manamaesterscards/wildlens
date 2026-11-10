@@ -1,128 +1,239 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  addSighting,
+  loadSightings,
+  preparePhoto,
+  saveCurrent,
+  type AnimalResult,
+  type Sighting,
+} from "@/lib/wildlens";
+
+type Phase =
+  | { kind: "idle" }
+  | { kind: "working"; photo: string | null }
+  | { kind: "error"; photo: string | null; message: string };
+
+const STEPS = [
+  "Looking at shape and markings",
+  "Comparing against known species",
+  "Writing the field guide entry",
+];
 
 export default function Home() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const libraryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
 
-  const handleFile = useCallback(
+  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [step, setStep] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const [sightings, setSightings] = useState<Sighting[]>([]);
+
+  useEffect(() => {
+    setSightings(loadSightings());
+  }, []);
+
+  // Walk through the progress messages while a photo is being identified.
+  const working = phase.kind === "working";
+  useEffect(() => {
+    if (!working) return;
+    setStep(0);
+    const timer = setInterval(() => setStep((s) => Math.min(s + 1, STEPS.length - 1)), 2400);
+    return () => clearInterval(timer);
+  }, [working]);
+
+  const identify = useCallback(
     async (file: File) => {
-      setError(null);
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const dataUrl = e.target?.result as string;
-        setPreview(dataUrl);
-        setLoading(true);
-        try {
-          const res = await fetch("/api/identify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: dataUrl }),
+      requestRef.current?.abort();
+      const controller = new AbortController();
+      requestRef.current = controller;
+      setPhase({ kind: "working", photo: null });
+
+      let photo: { full: string; thumbnail: string };
+      try {
+        photo = await preparePhoto(file);
+      } catch {
+        if (controller.signal.aborted) return;
+        setPhase({
+          kind: "error",
+          photo: null,
+          message: "This browser can't open that file. Try a JPEG or PNG photo.",
+        });
+        return;
+      }
+      if (controller.signal.aborted) return;
+      setPhase({ kind: "working", photo: photo.full });
+
+      try {
+        const res = await fetch("/api/identify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: photo.full }),
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`Identify request failed: ${res.status}`);
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+
+        if (!data?.found || !data.commonName) {
+          setPhase({
+            kind: "error",
+            photo: photo.full,
+            message: "No animal found in this photo. Get closer, or try one where the animal is in focus.",
           });
-          if (!res.ok) throw new Error("Identification failed");
-          const data = await res.json();
-          sessionStorage.setItem("wildlens_result", JSON.stringify({ ...data, image: dataUrl }));
-          router.push("/result");
-        } catch {
-          setError("Could not identify the animal. Please try a clearer photo.");
-          setLoading(false);
-          setPreview(null);
+          return;
         }
-      };
-      reader.readAsDataURL(file);
+
+        const result: AnimalResult = { ...data, image: photo.full };
+        saveCurrent(result);
+        addSighting(result, photo.thumbnail);
+        router.push("/result");
+      } catch {
+        if (controller.signal.aborted) return;
+        setPhase({
+          kind: "error",
+          photo: photo.full,
+          message: "The photo couldn't be identified. Check your connection and try again.",
+        });
+      }
     },
     [router]
   );
 
+  const cancel = () => {
+    requestRef.current?.abort();
+    setPhase({ kind: "idle" });
+  };
+
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    e.target.value = ""; // allow choosing the same photo again
+    if (file) identify(file);
   };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setDragging(false);
+    if (working) return;
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith("image/")) handleFile(file);
+    if (!file) return;
+    if (file.type.startsWith("image/")) identify(file);
+    else setPhase({ kind: "error", photo: null, message: "That file isn't a photo. Drop a JPEG or PNG image." });
   };
 
+  const openSighting = (sighting: Sighting) => {
+    saveCurrent(sighting);
+    router.push("/result");
+  };
+
+  const photo = phase.kind === "idle" ? null : phase.photo;
+  const retrying = phase.kind === "error";
+
   return (
-    <main className="flex flex-col flex-1 items-center justify-center px-4 py-12 gap-8">
-      {/* Header */}
-      <div className="text-center">
-        <div className="text-5xl mb-3">🦅</div>
-        <h1 className="text-4xl font-bold tracking-tight" style={{ color: "var(--accent-light)" }}>
-          WildLens
-        </h1>
-        <p className="mt-2 text-sm" style={{ color: "#a5d6a7" }}>
-          Point at any animal for instant field guide details
+    <main className="home">
+      <p className="wordmark">WildLens</p>
+
+      <div className="home-intro">
+        <h1 className="home-title">What animal is that?</h1>
+        <p className="lede">
+          Take or choose a photo and get its field guide entry: name, size, habitat, and where in the world it lives.
         </p>
       </div>
 
-      {/* Upload area */}
       <div
-        className="w-full max-w-sm rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-4 p-10 transition-colors cursor-pointer"
-        style={{ borderColor: "#2e4d2e", background: "var(--card)" }}
+        className="viewfinder"
+        data-state={phase.kind}
+        data-dragging={dragging ? "true" : undefined}
         onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
-        onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!working) setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
       >
-        {loading ? (
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-10 h-10 border-4 border-green-400 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm" style={{ color: "#a5d6a7" }}>Identifying animal…</p>
-          </div>
-        ) : preview ? (
+        {photo && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Preview" className="rounded-xl w-full object-cover max-h-64" />
-        ) : (
+          <img className="viewfinder-photo" src={photo} alt="Your photo" />
+        )}
+
+        {!photo && !working && (
+          <button type="button" className="viewfinder-target" onClick={() => libraryInputRef.current?.click()}>
+            <svg className="viewfinder-icon" viewBox="0 0 48 48" aria-hidden="true">
+              <circle cx="24" cy="24" r="15" />
+              <circle cx="24" cy="24" r="2.5" className="viewfinder-icon-dot" />
+              <path d="M24 3v8M24 37v8M3 24h8M37 24h8" />
+            </svg>
+            <span className="viewfinder-label">Choose a photo</span>
+            <span className="viewfinder-hint">or drop one here</span>
+          </button>
+        )}
+
+        {working && (
           <>
-            <div className="text-5xl">📷</div>
-            <p className="text-center text-sm font-medium" style={{ color: "#a5d6a7" }}>
-              Tap to upload a photo
-              <br />
-              <span className="text-xs opacity-60">or drag &amp; drop</span>
+            <span className="scanline" aria-hidden="true" />
+            <p className="viewfinder-status" role="status">
+              {photo ? STEPS[step] : "Opening photo"}…
             </p>
           </>
         )}
+
+        <span className="corner corner-tl" aria-hidden="true" />
+        <span className="corner corner-tr" aria-hidden="true" />
+        <span className="corner corner-bl" aria-hidden="true" />
+        <span className="corner corner-br" aria-hidden="true" />
       </div>
 
-      {/* Buttons */}
-      {!loading && (
-        <div className="flex flex-col gap-3 w-full max-w-sm">
-          <button
-            className="w-full py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 active:scale-95"
-            style={{ background: "var(--accent)", color: "#0f1a0f" }}
-            onClick={() => cameraInputRef.current?.click()}
-          >
-            Open Camera
+      <div className="home-actions">
+        {phase.kind === "error" && (
+          <p className="notice" role="alert">
+            {phase.message}
+          </p>
+        )}
+
+        {working ? (
+          <button type="button" className="btn btn-secondary" onClick={cancel}>
+            Cancel
           </button>
-          <button
-            className="w-full py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 active:scale-95"
-            style={{ background: "#1a2e1a", color: "var(--accent-light)", border: "1px solid #2e4d2e" }}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Choose from Library
-          </button>
-        </div>
+        ) : (
+          <>
+            <button type="button" className="btn btn-primary btn-camera" onClick={() => cameraInputRef.current?.click()}>
+              {retrying ? "Take another photo" : "Take a photo"}
+            </button>
+            <button type="button" className="btn btn-secondary btn-library" onClick={() => libraryInputRef.current?.click()}>
+              {retrying ? "Choose another photo" : "Choose from library"}
+            </button>
+          </>
+        )}
+
+        <p className="fineprint">Works with birds, mammals, reptiles, amphibians, fish, insects, and pets.</p>
+      </div>
+
+      {sightings.length > 0 && (
+        <section className="sightings" aria-labelledby="sightings-heading">
+          <h2 id="sightings-heading" className="section-heading">
+            Recent sightings
+          </h2>
+          <ul className="sighting-list">
+            {sightings.map((sighting) => (
+              <li key={sighting.id}>
+                <button type="button" className="sighting" onClick={() => openSighting(sighting)}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={sighting.image} alt="" />
+                  <span className="sighting-name">{sighting.commonName}</span>
+                  <span className="sighting-sci">{sighting.scientificName}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
-      {error && (
-        <p className="text-sm text-red-400 text-center max-w-xs">{error}</p>
-      )}
-
-      {/* Hidden inputs */}
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
-      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onFileChange} />
-
-      <p className="text-xs opacity-40 text-center max-w-xs">
-        Birds · Mammals · Reptiles · Amphibians · Fish · Insects · Pets & more
-      </p>
+      <input ref={libraryInputRef} type="file" accept="image/*" hidden onChange={onFileChange} />
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={onFileChange} />
     </main>
   );
 }
